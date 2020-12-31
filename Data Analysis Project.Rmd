@@ -1,0 +1,567 @@
+---
+title: "Data Analysis Projet"
+author: "Imad TOUACH"
+date: "15/11/2020"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(tibble)   # tibble()
+library(broom)    # tidy()
+library(cvms)
+#library(tinytex)
+#library(xfun)
+```
+
+## Exercise 1
+###1)- simulate sample of 1000 vectors from 2 dimensional mixture with 2 components
+```{r}
+
+set.seed(1)
+
+I<-matrix(c(1,0,0,1),2,2)
+MU<-matrix(c(1,2),1,2)
+
+X<-matrix(rnorm(2000),1000,2)
+#matris1<- matrix(1,1000,2)
+
+N = 1000
+p=1/2
+Z = sample(2, size = N, replace= T, prob =c(p,1-p))
+
+mixture = array(dim=c(N,2),NA)
+
+for (i in 1:N){
+  if (Z[i] == 1)
+    mixture[i,] = X[i,]%*%chol(I) + MU
+  else  #Z =2
+    mixture[i,] = X[i,]%*%chol(4*I) + MU
+}
+
+head(mixture)
+```
+
+###2)- scatter plot of the sample
+```{r}
+plot(mixture,xlab="x",ylab="y",pch='.', xlim=c(-4,6),ylim=c(-4,6))
+```
+
+
+###3)- The coutour plot of the two dimensional density
+```{r}
+par(mfrow=c(1,3)) # partage laffichage en 2
+
+plot(mixture,xlab="x",ylab="y",pch='.')
+
+
+Q<-qchisq(p=seq(0.05,0.95,by=0.1),df=2)
+
+x<-seq(-6,6,length=100)
+y<-seq(-6,6,length=100)
+
+sigmainv<-solve(17/4 * I)
+a<-sigmainv[1,1]
+b<-sigmainv[2,2]
+c<-sigmainv[1,2]
+z<-outer(x,y,function(x,y) (a*x^2+b*y^2+2*c*x*y))
+
+image(x,y,z)
+contour(x,y,z,col="blue4",levels=Q,labels=seq(from=0.05,to=0.95,by=0.1),add=T)
+persp(x,y,1/(2*pi)*det(sigmainv)^(-1/2)*exp(-0.5*z),col="cornflowerblue",theta = 5,phi = 10, zlab = 'f(x)')
+
+
+
+m <- ggplot(as.data.frame(mixture), aes(x = V1 , y = V2))
+m + geom_bin2d() + theme_bw()
+
+```
+
+we notice a significant density on the center of the graph equal to 0.05. Besides, the density is became lower in borders.
+
+```{r}
+ggplot(as.data.frame(mixture), aes(x = V1 , y = V2, color = as.factor(Z))) + geom_point()
+
+```
+
+We can observe from the scatter plot above the dispersion of the to densities for Z equal to one and two. It seems obvious that we can not to separate the mixture using k-means, because the two densities have the same centers. 
+
+
+## Exercise 2 : MCLUST VERSUS kMEANS
+
+
+########## BIC (Bayesian Information Criterion)   
+>
+mcluster is a Model-based hierarchical clustering with finite mixture models and it is widely used in clustering method. 
+mclust based on maximum likelihood estimation. Initialisation of EM is performed using the partitions obtained from agglomerative hierarchical clustering
+
+
+### 1. runing Mclust on the simulated data from the first exercise and comment the result
+
+```{r}
+library(mclust)
+
+res_mclust = Mclust(mixture)
+plot(res_mclust, "BIC")
+```
+>>
+After we apply the Mclust algorithme on the data. We generate the graph of BIC (Bayesian Information Criterion). For the model VII it reaches the maximum for a number of components equal to 2. That means that the data could be devided into two classes.
+
+
+### 2. Estimate the parameters of the simulated data
+
+
+
+##### a. L'estimation du proportion de mixage :
+```{r}
+res_mclust$parameters$pro
+
+res_mclust$parameters
+```
+
+
+variance\$sigma : return the estimation values for the covariance matrices of each cluster
+\$pro : return the proportion for each cluster in the mixture
+\$mean : return the mean vectors for the clusters in one matrice.
+
+
+#### 3. Find a partition of the simulated data into two classes using mclust
+
+````{r}
+res_mclust_2 = Mclust(mixture, minG = 2, maxG = 2)
+plot(res_mclust_2, "BIC")
+
+summary(res_mclust_2)
+```
+ 
+
+```{r}
+head(res_mclust$classification)
+plot(res_mclust, what = "uncertainty")
+
+```
+
+
+
+
+
+
+
+
+
+##### 4. Find a partition of simulated data into two classes.
+```{r}
+res.kmeans = kmeans(mixture, 2, nstart = 20)
+plot(mixture,  pch = 19, col = rainbow(2)[res.kmeans$cluster])
+```
+
+
+```{r}
+summary(res.kmeans)
+head(res.kmeans)
+pi_hat = res.kmeans$size[1]
+pi_hat
+
+pi_hat_2 = res.kmeans$size[2]
+pi_hat_2
+```
+
+
+5)- Comparison between the two partitions:
+
+The partitions obtained by kmeans can be separated by a line, on the other hand for the partitions obtained by mclust cannot be separated by a line because the two clusters have the same centers.
+
+In our case we have a mixture data from two clusters which have the same centers and a different dispersion. So the kmeans method is not efficient in this case.
+
+
+## Exercice 3:
+
+
+### 1.
+We have
+
+$$
+\begin{align*}
+ t_{ik} &= \mathbb{E}_{Z_{ik}|X_i}[Z_{ik}] \\
+ & = \mathbb{P}_{\theta^q}(Z_{ik} = 1 | x_i) \\
+ & = \frac{\mathbb{P}_{\theta^q}(Z_{ik} = 1 , x_i)} {\mathbb{P}_{\theta^q}(x_i)} \\
+ & = \frac{\mathbb{P}_{\theta^q}(Z_{ik} = 1) \times \mathbb{P}_{\theta^q}(x_i | Z_{ik} = 1)}{\mathbb{P}_{\theta^q}(x_i)} \\
+ & = \frac{\pi_k \times \mathcal N(x_i | \mu,\Sigma_k = \sigma_k^2 \times I_p)}{\sum_{k=1}^K \pi_k \times \mathcal N(x_i | \mu,\Sigma_k = \sigma_k^2 \times I_p)}
+\end{align*}
+$$
+
+With : 
+
+$$
+\mathcal N(x_i | \mu,\Sigma_k = \sigma_k^2 \times I_p)  = \frac{1}{(2 \pi) \sigma_k^{p}} \times \exp(\frac{-1}{2 \sigma_k^2} \times  \Sigma_{j=1}^p (x_{ij} - \mu_{kj})^2)
+$$
+
+### 2.
+
+$$
+\begin{align*}
+  Q(\theta , \theta^q) &= \mathbb{E}_{Z_{ik}|X_i , \theta^q}[\ln(\mathbb{P_{\theta}(X,Z)})] \\
+  &= \mathbb{E}_{Z_{ik}|X_i , \theta^q}(\ln([\prod_{j=1}^n \prod_{k=1}^K \mathbb{P}_{\theta^q}(Z_{ik} = 1)^{Z_{ik}} \times \mathbb{P}_{\theta^q}(x_i|z_{ik} = 1)^{Z_{ik}}])) \\
+  &= \mathbb{E}(\Sigma_{i=1}^n \Sigma_{k=1}^K z_{ik} (\ln(\pi_k) + \ln(\mathcal N(x_i | \mu,\Sigma_k = \sigma_k^2 \times I_p)))) \\
+  &= \Sigma_{i=1}^n \Sigma_{k=1}^K t_{ik}^q [\ln(\pi_k) - \frac{1}{2} \ln(\sigma_k^{2p}) - \frac{1}{2\sigma_k^2}(\Sigma_{j=1}^p (x_{ij} - \mu_{kj})^2) - \frac{p}{2} \ln(2\pi)]
+\end{align*}
+$$
+
+### 3.
+
+Using the Lagrangien defined by : $$ 	\mathcal{L}(\theta, \lambda) = Q(\theta, \theta^q) + \lambda (\Sigma_{k=1}^K \pi_k - 1) $$
+
+we aim to estimate the parameters \theta that maximize Q(\theta, \theta^q).
+To do so we derive the lagrangien over the parameters and we solve it. As result we got the estimation below:
+
+$$ \mu_k = \frac{\Sigma_{i=1}^n t_{ik} x_i}{\Sigma_{i=1}^n t_{ik}} $$ with $$x_i$$ a vector.
+Then $$ \sigma_k^2 = \frac{\Sigma_{i=1}^n \Sigma_{j=1}^p t_{ik}(x_{ij}-\mu_{kj})^2}{p \times \Sigma_{i=1}^n t_{ik} } $$
+
+$$ \pi_k =  \frac{\Sigma_{i=1}^n t_{ik}}{n} $$
+
+### 4.
+![DESCRIPTION DE L'IMAGE](algo.png)
+
+
+### 5. E-step function:
+
+It is used to estimate the unknown variables in our case $$t_{ik}^{q}$$
+
+```{r}
+# instanciation
+K = 2
+p = 2
+n = 1000
+
+pi_ = matrix(1/K,nrow = 1,ncol = K)
+mu = matrix(rnorm(K*p), nrow = K,ncol = p)
+sigma = matrix(1, nrow = 1, ncol = K)
+t = matrix(0, nrow = n, ncol = K)
+
+
+```
+
+
+
+```{r}
+E_step = function(t ,X, pi_, mu, sigma_2, n, K, p){
+  # X : elle contient l'information de taille (n,p)
+  # pi : elle contient la proportion du melange, de taille (1,K)
+  # mu : matrice qui contient les valeures de $$\mu_k$$ de taille (K,p)
+  # sigma : vecteur contient les valeurs de $$\sigma_k$$ de taille (1,K)
+  
+  
+  for (i in 1:n) {
+    den =0
+    for (k in 1:K) {
+      sum = 0
+      for(j in 1:p){
+        sum = sum + (X[i,j] - mu[k,j])^2
+      }
+      den = den + pi_[1,k]*(1/(sqrt(sigma_2[1,k])^p))*exp(-0.5*(1/sigma_2[1,k])*sum)
+    }
+    
+    for (k in 1:K) {
+      sum = 0
+      for(j in 1:p){
+        sum = sum + (X[i,j] - mu[k,j])^2
+      }
+      t[i,k] = (pi_[1,k]*(1/(sqrt(sigma_2[1,k])^p))*exp(-0.5*(1/sigma_2[1,k])*sum)) / den
+    }
+  }
+  return(t)  #pi_ = pi_, mu = mu, sigma = sigma
+}
+
+```
+
+
+>> To check the results using the real parameters of the simulation data goted in the first exercise.
+
+```{r}
+K = 2
+p = 2
+n = 1000
+pi_ = matrix(1/K,nrow = 1,ncol = K)
+mu = matrix(c(1,1,2,2), nrow = K,ncol = p)
+sigma_2 = matrix(c(1,4), nrow = 1, ncol = K)
+t = matrix(0, nrow = n, ncol = K)
+
+t_result = E_step(t ,mixture, pi_, mu, sigma_2, n, K, p)
+
+head(t_result)
+
+Z_result = matrix(1, nrow = n, ncol = 1)
+
+for (i in 1:n) {
+  if(t_result[i,1] < t_result[i,2]){
+    Z_result[i,1] = 2
+  }
+}
+
+head(Z_result)
+
+
+#cfm <- tidy(table(tibble( 'target'= as.matrix(Z), 'prediction' = Z_result)))
+
+#plot_confusion_matrix(cfm, 
+  #                    target_col = "target", 
+   #                   prediction_col = "prediction",
+    #                  counts_col = "n")
+```
+
+
+The confusion matrix computed using the real parameters shows the results above with a performance of 72,7\%
+
+```{r}
+ggplot(as.data.frame(mixture), aes(x = V1 , y = V2, color = as.factor(Z_result))) + geom_point()
+
+```
+
+6)- M-step : elle sert a estimer les parametres $$\theta^{q+1}$$ en utilisant les $$t_ik^{q}$$ calcule dans E_step
+
+```{r}
+M_step = function(t, data , pi_, mu_, sigma_2, n, K, p){
+  for (k in 1:K) {
+    num = 0
+    den = 0
+    for (i in 1:n) {
+      num = num + t[i,k] * data[i,]
+      den = den + t[i,k]
+    }
+
+    mu_[k,] = (1/den) * num
+
+    num_ = 0
+    for (i in 1:n) {
+      #num_ = num_ + t[i,k] * ((X[i,] - mu[k,]) %*% (X[i,] - mu[k,]))
+      num_ = num_ + t[i,k] * ((data[i,] - mu_[k,]) %*% (data[i,] - mu_[k,]))
+    }
+
+    sigma_2[1,k] = (1/(p *den)) * num_
+
+    pi_[1,k] = den / n
+  }
+  return(list(pi_ = pi_, mu = mu_, sigma_2 = sigma_2))
+}
+
+
+```
+
+
+```{r}
+EM_algo <- function(X, K, epsilon = 10^(-20)) {
+  n = dim(X)[1]
+  p = dim(X)[2]
+  
+  a = 0
+  
+  #instanciation
+  t = matrix(0, nrow = n, ncol = K)
+  pi_ = matrix(1/K,nrow = 1,ncol = K)
+  mu = matrix(rnorm(K*p), nrow = K,ncol = p)
+  sigma_2 = matrix(1, nrow = 1, ncol = K)
+  
+  distance = 1
+  log_likelihood_vector = c()
+  Q_ =c()
+  while( (a<5000) && (distance>epsilon) ){
+    #E-step
+    t = E_step(t ,X, pi_, mu, sigma_2, n, K, p)
+    
+    # compute Q:
+    
+    Q = 0
+    for (i in 1:n) {
+      for (j in 1:K) {
+        Q = Q + t[i,j] * (log(pi_[1,j]) - (1/2)*(p * log(sigma_2[1,j]) + (1/sigma_2[1,j]) * ((X[i,]-mu[j,]) %*% (X[i,]-mu[j,])) + p * log(2*pi)))
+      }
+    }
+    
+    Q_ = c(Q_,c(Q))
+
+    
+    #compute the log_likelihood:
+    Z_ik = matrix(0, nrow = n, ncol = K)
+    Z_i = matrix(0, nrow = n, ncol = 1)
+    for (i in 1:n) {
+      j = which.max(t[i,])
+      Z_i[i,1] = j
+      Z_ik[i,j] = 1
+    }
+
+    log_likelihood = 0
+    for (i in 1:n){
+      for(k in 1:K){
+        log_likelihood = log_likelihood + Z_ik[i,k] * (log(pi_[1,k]) - (p/2)* log(sigma_2[1,k]) - (1/2) * ((X[i,]-mu[k,]) %*% (X[i,]-mu[k,])) - (p/2) * log(2*pi))
+      }
+    }
+
+    log_likelihood_vector = c(log_likelihood_vector, c(log_likelihood))
+    
+    
+    
+    
+    #M-step
+    M = M_step(t, X, pi_, mu, sigma_2, n, K, p)
+    
+    # computation of distance: the distance between the old and new parameters. 
+    num = 0
+    num = num + sum(((mu - M$mu)*(mu - M$mu)))
+    num = num + sum(((sigma_2 - M$sigma_2) * (sigma_2 - M$sigma_2)))
+    num = num + sum(((pi_ - M$pi_) * (pi_ - M$pi_)))
+    
+    den = 0
+    den = den + sum((mu*mu))
+    den = den + sum((sigma_2 * sigma_2))
+    den = den + sum((pi_ * pi_))
+    
+    distance = num/den
+    
+    #assignment of new parameters mu, sigma_2 and pi_ 
+    mu = M$mu
+    sigma_2 = M$sigma_2
+    pi_ = M$pi_
+    a = a + 1
+    
+  }
+  return(list(pi_ = pi_, mu = mu, sigma_2 = sigma_2, log_likelihood_vector = log_likelihood_vector, Q_ = Q_, Z_ik = Z_i))
+}
+```
+
+
+
+
+```{r}
+EM = EM_algo(mixture,2)
+```
+
+```{r}
+length(EM$Q_)
+plot(EM$Q_[2:length(EM$Q_)])
+```
+
+We have just already check the property of Q that increases
+
+```{r}
+EM$sigma_2
+```
+
+The algorithm estimate well the parameters of the mixture:
+
+```{r}
+plot(EM$log_likelihood_vector[2:length(EM$log_likelihood_vector)])
+```
+
+We notice that the log-likelihood increases.
+
+## Exercise 4:
+
+
+### 1. Exploiting iris data
+
+#### a. Using kmeans
+
+```{r}
+data(iris)
+
+X_iris <- as.matrix(iris[,c(1:4)])  #as.matrix(iris %>% select(-Species))
+
+head(X_iris)
+
+dim(X_iris)
+```
+
+```{r}
+table(iris$Species)
+```
+
+
+```{r}
+kmeans_3 = kmeans(X_iris ,3,nstart = 10)
+```
+
+
+```{r}
+kmeans_3
+```
+
+```{r}
+kmeans_3$centers
+
+```
+
+```{r}
+cluster<-as.factor(kmeans_3$cluster)
+centers <-as.tibble(kmeans_3$centers)
+```
+
+
+>> We plot the iris data by clusters. 
+
+```{r}
+ggplot(as.data.frame(X_iris), aes(x=Petal.Length, y=Petal.Width, color=cluster)) +
+geom_point()
+
+ggplot(as.data.frame(X_iris), aes(x=Sepal.Length, y=Sepal.Width, color=cluster)) +
+geom_point()
+```
+
+```{r}
+table(tibble( 'target'= as.factor(iris$Species) , 'prediction' = as.factor(cluster)))
+
+```
+
+>> For flowers of setosa's type are well predicted. However for versicolor's and virginica's are related as we can conclude from the plot above the tow types are near to each others
+
+
+#### b. EM algorithm
+
+
+```{r}
+EM_3 =  EM_algo(X_iris, 3, epsilon = 10^(-30))
+```
+
+
+```{r}
+plot(EM_3$Q_[20:4500])
+```
+```{r}
+EM_3$mu
+```
+
+>> We notice that for iris data the EM algorithm have estimated the same values of the parameters.
+
+```{r}
+
+library(ggplot2)
+
+# plots with the results provided by the EM algorithm
+ggplot(as.data.frame(X_iris), aes(x=Petal.Length, y=Petal.Width, color=as.factor(EM_3$Z_ik))) +
+geom_point()
+
+ggplot(as.data.frame(X_iris), aes(x=Sepal.Length, y=Sepal.Width, color=as.factor(EM_3$Z_ik))) +
+geom_point()
+
+# plots with the results provided by the real clusters using the target iris$Species
+ggplot(as.data.frame(X_iris), aes(x=Sepal.Length, y=Sepal.Width, color=as.factor(iris$Species))) +
+geom_point()
+
+ggplot(as.data.frame(X_iris), aes(x=Petal.Length, y=Petal.Width, color=as.factor(iris$Species))) +
+geom_point()
+```
+
+```{r}
+table(tibble( 'target'= as.factor(iris$Species) , 'prediction' = as.factor(EM_3$Z_ik)))
+```
+
+### 2. Comment
+
+To sum up briefly, in case of applying kmeans or EM algo on iris data into 3 classes we got about the same results.This diffrent from the results gotten in the second exercise, because we dealt with a Gaussian Mixture.
